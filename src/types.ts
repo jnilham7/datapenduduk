@@ -67,4 +67,5 @@ export interface DashboardStats {
   genderData: { name: string; value: number }[];
   ageData: { name: string; value: number }[];
   dusunData: { name: string; value: number }[];
+  productivityData?: { name: string; value: number }[];
 }

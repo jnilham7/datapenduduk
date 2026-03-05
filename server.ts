@@ -155,6 +155,11 @@ async function startServer() {
 
   // Middleware to check token
   const auth = (req: any, res: any, next: any) => {
+    // Allow public access to stats
+    if (req.path === '/api/stats' && req.method === 'GET') {
+      return next();
+    }
+    
     const token = req.headers.authorization;
     if (!token) return res.status(401).json({ status: 'error', message: 'Unauthorized' });
     const user = db.prepare("SELECT * FROM users WHERE token = ?").get(token) as any;
@@ -176,16 +181,18 @@ async function startServer() {
 
     const recentLogs = db.prepare("SELECT * FROM activity_logs ORDER BY timestamp DESC LIMIT 5").all();
 
-    // Age Distribution Logic
+    // Age Distribution Logic (Kemenkes Standard)
     const residents = db.prepare("SELECT tanggal_lahir FROM residents").all() as any[];
     const ageGroups = {
-      '0-5': 0,
-      '6-12': 0,
-      '13-17': 0,
-      '18-35': 0,
-      '36-50': 0,
-      '51+': 0
+      'Balita (0-5)': 0,
+      'Anak (6-10)': 0,
+      'Remaja (11-19)': 0,
+      'Dewasa (20-59)': 0,
+      'Lansia (60+)': 0
     };
+    
+    let produktif = 0;
+    let nonProduktif = 0;
 
     const now = new Date();
     residents.forEach(r => {
@@ -197,15 +204,23 @@ async function startServer() {
         age--;
       }
 
-      if (age <= 5) ageGroups['0-5']++;
-      else if (age <= 12) ageGroups['6-12']++;
-      else if (age <= 17) ageGroups['13-17']++;
-      else if (age <= 35) ageGroups['18-35']++;
-      else if (age <= 50) ageGroups['36-50']++;
-      else ageGroups['51+']++;
+      // Kemenkes Categories
+      if (age <= 5) ageGroups['Balita (0-5)']++;
+      else if (age <= 10) ageGroups['Anak (6-10)']++;
+      else if (age <= 19) ageGroups['Remaja (11-19)']++;
+      else if (age <= 59) ageGroups['Dewasa (20-59)']++;
+      else ageGroups['Lansia (60+)']++;
+
+      // Produktifitas (15-64)
+      if (age >= 15 && age <= 64) produktif++;
+      else nonProduktif++;
     });
 
     const ageData = Object.keys(ageGroups).map(key => ({ name: key, value: ageGroups[key as keyof typeof ageGroups] }));
+    const productivityData = [
+      { name: 'Produktif (15-64)', value: produktif },
+      { name: 'Non-Produktif', value: nonProduktif }
+    ];
 
     // Dusun Recap Logic
     const dusunRecap = db.prepare("SELECT dusun as name, COUNT(*) as value FROM residents GROUP BY dusun").all() as any[];
@@ -226,6 +241,7 @@ async function startServer() {
           { name: 'Perempuan', value: totalPerempuan.count }
         ],
         ageData,
+        productivityData,
         dusunData: dusunRecap
       }
     });

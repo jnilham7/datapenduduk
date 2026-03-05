@@ -3,41 +3,58 @@
  * Handles communication with either local Express backend or Google Apps Script
  */
 
-export const IS_GAS = (import.meta as any).env.VITE_USE_GAS === 'true';
+export const IS_GAS = localStorage.getItem('SIDAPEK_MODE') === 'local' ? false : (import.meta as any).env.VITE_USE_GAS === 'true';
 export const GAS_URL = (import.meta as any).env.VITE_GAS_URL || '';
 
 async function request(action: string, data?: any, token?: string) {
   if (IS_GAS) {
-    if (!GAS_URL || GAS_URL.includes('YOUR_GAS_DEPLOYMENT_ID')) {
-      console.error('GAS_URL is not configured correctly. Please update VITE_GAS_URL in your environment variables.');
+    if (!GAS_URL || GAS_URL.includes('YOUR_GAS_DEPLOYMENT_ID') || !GAS_URL.startsWith('https://')) {
+      console.error('GAS_URL is not configured correctly:', GAS_URL);
       return { 
         status: 'error', 
-        message: 'Konfigurasi Google Apps Script belum lengkap. Pastikan VITE_GAS_URL sudah diatur dengan ID Deployment yang benar di panel Secrets.' 
+        message: 'Konfigurasi Google Apps Script tidak valid. Pastikan VITE_GAS_URL sudah diatur dengan URL Deployment yang benar (dimulai dengan https:// dan berakhiran /exec) di panel Secrets.' 
       };
     }
 
     try {
-      // GAS web apps don't support standard CORS preflight for application/json.
-      // We use text/plain to bypass preflight and GAS handles the JSON parsing.
+      console.log(`Fetching from GAS: ${GAS_URL} (Action: ${action})`);
+      
+      // Use a controller to add a timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
       const response = await fetch(GAS_URL, {
         method: 'POST',
         mode: 'cors',
-        redirect: 'follow',
         headers: {
           'Content-Type': 'text/plain',
         },
-        body: JSON.stringify({ action, data, token })
+        body: JSON.stringify({ action, data, token }),
+        signal: controller.signal
       });
       
+      clearTimeout(timeoutId);
+      
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const result = await response.json();
-      return result;
+      const text = await response.text();
+      
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        console.error('Failed to parse GAS response as JSON:', text);
+        return { 
+          status: 'error', 
+          message: 'Respon dari Google Sheets bukan format JSON yang valid. Pastikan script Anda mengembalikan JSON.' 
+        };
+      }
     } catch (error: any) {
       console.error('GAS Request Error:', error);
       
       let helpMessage = 'Gagal terhubung ke Google Sheets.';
-      if (error.message === 'Failed to fetch') {
-        helpMessage += ' Pastikan Script sudah di-deploy sebagai "Web App", akses diatur ke "Anyone" (bukan "Anyone with Google Account"), dan URL sudah benar (harus berakhiran /exec).';
+      if (error.name === 'AbortError') {
+        helpMessage = 'Koneksi ke Google Sheets timeout (melebihi 15 detik).';
+      } else if (error.message === 'Failed to fetch') {
+        helpMessage += ' (Failed to fetch) Pastikan Script sudah di-deploy sebagai "Web App", akses diatur ke "Anyone" (bukan "Anyone with Google Account"), dan URL sudah benar.';
       } else {
         helpMessage += ' Error: ' + error.message;
       }

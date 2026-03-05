@@ -140,7 +140,7 @@ export default function App() {
   }, []);
 
   const fetchData = async (token: string, type: string) => {
-    if (!token) return;
+    if (!token && type !== 'dashboard') return;
     setIsLoading(true);
     try {
       let res;
@@ -212,6 +212,7 @@ export default function App() {
   };
 
   const userHasPermission = (viewName: string, action?: string) => {
+    if (viewName === 'dashboard') return true;
     if (!currentUser) return false;
     if (currentUser.role === 'Admin') return true;
     
@@ -444,28 +445,18 @@ export default function App() {
             )}
           </nav>
 
-        <div className="p-4 border-t border-slate-800">
-          {isAuthenticated && (
-            <button 
-              onClick={handleLogout}
-              className="flex items-center gap-3 w-full px-4 py-3 text-red-400 hover:bg-red-500/10 rounded-xl transition-all group"
-            >
-              <LogOut className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-              {sidebarOpen && <span className="font-medium">Keluar</span>}
-            </button>
-          )}
-          
           {sidebarOpen && (
-            <div className="mt-4 px-4 py-2 bg-slate-800/50 rounded-lg border border-slate-700/50">
-              <div className="flex items-center gap-2">
-                <div className={cn("w-2 h-2 rounded-full", IS_GAS ? "bg-amber-500" : "bg-emerald-500")}></div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  Mode: {IS_GAS ? "Google Sheets" : "Local Server"}
-                </span>
+            <div className="mt-auto p-4 border-t border-slate-800">
+              <div className="px-4 py-2 bg-slate-800/50 rounded-lg border border-slate-700/50">
+                <div className="flex items-center gap-2">
+                  <div className={cn("w-2 h-2 rounded-full", IS_GAS ? "bg-amber-500" : "bg-emerald-500")}></div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Mode: {IS_GAS ? "Google Sheets" : "Local Server"}
+                  </span>
+                </div>
               </div>
             </div>
           )}
-        </div>
       </aside>
 
       {/* Main Content */}
@@ -563,6 +554,18 @@ export default function App() {
 
         {/* View Content */}
         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar bg-slate-50/50 relative">
+          {/* Loading Bar */}
+          {isLoading && (
+            <div className="absolute top-0 left-0 right-0 z-50 h-1 bg-slate-100 overflow-hidden">
+              <motion.div 
+                initial={{ x: '-100%' }}
+                animate={{ x: '100%' }}
+                transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
+                className="h-full w-1/3 bg-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.5)]"
+              />
+            </div>
+          )}
+
           {/* Global Notification Bar */}
           <AnimatePresence>
             {notification && (
@@ -672,7 +675,7 @@ export default function App() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
             >
-              {view === 'dashboard' && <DashboardView stats={stats} setView={navigate} />}
+              {view === 'dashboard' && <DashboardView stats={stats} setView={navigate} isAuthenticated={isAuthenticated} />}
               {view === 'map' && <VillageMapView residents={residents} />}
               {view === 'residents' && (
                 <ResidentsView 
@@ -701,7 +704,11 @@ export default function App() {
                   onDelete={(nik: string) => {
                     const resident = residents.find(r => r.nik === nik);
                     if (resident) {
-                      handleSaveResident({ ...resident, lembaga: 'None', jabatan: '' });
+                      showConfirm(
+                        'Hapus dari Lembaga',
+                        `Apakah Anda yakin ingin menghapus ${resident.nama} dari jabatan di lembaga ini?`,
+                        () => handleSaveResident({ ...resident, lembaga: 'None', jabatan: '' })
+                      );
                     }
                   }}
                   onAdd={() => { 
@@ -724,7 +731,11 @@ export default function App() {
                   onDelete={(nik: string) => {
                     const resident = residents.find(r => r.nik === nik);
                     if (resident) {
-                      handleSaveResident({ ...resident, lembaga: 'None', jabatan: '' });
+                      showConfirm(
+                        'Hapus dari Lembaga',
+                        `Apakah Anda yakin ingin menghapus ${resident.nama} dari jabatan di lembaga ini?`,
+                        () => handleSaveResident({ ...resident, lembaga: 'None', jabatan: '' })
+                      );
                     }
                   }}
                   onAdd={() => { 
@@ -1272,22 +1283,23 @@ function SidebarItem({ icon, label, active, onClick, collapsed }: any) {
     <button 
       onClick={onClick}
       className={cn(
-        "flex items-center gap-3 w-full px-4 py-3 rounded-xl transition-all duration-200 group",
-        collapsed ? "justify-center" : "justify-start",
+        "flex items-center w-full rounded-xl transition-all duration-200 group",
+        collapsed ? "justify-center px-0 py-3" : "justify-start px-4 py-3 gap-3",
         active 
           ? "bg-blue-600 text-white shadow-lg shadow-blue-900/50" 
           : "text-slate-400 hover:bg-slate-800 hover:text-white"
       )}
+      title={collapsed ? label : undefined}
     >
       <div className={cn("flex-shrink-0 group-hover:scale-110 transition-transform flex items-center justify-center", active ? "text-white" : "text-slate-500 group-hover:text-blue-400")}>
-        {React.cloneElement(icon, { size: 20 })}
+        {React.cloneElement(icon, { size: collapsed ? 24 : 20 })}
       </div>
       {!collapsed && <span className="font-medium text-xs tracking-tight">{label}</span>}
     </button>
   );
 }
 
-function DashboardView({ stats, setView }: { stats: DashboardStats | null, setView: (view: any) => void }) {
+function DashboardView({ stats, setView, isAuthenticated }: { stats: DashboardStats | null, setView: (view: any) => void, isAuthenticated: boolean }) {
   if (!stats) return (
     <div className="animate-pulse space-y-8">
       <div className="h-10 w-48 bg-slate-200 rounded-lg mb-8"></div>
@@ -1439,45 +1451,98 @@ function DashboardView({ stats, setView }: { stats: DashboardStats | null, setVi
             </div>
           </div>
         </motion.div>
+
+        {stats.productivityData && (
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="bg-white rounded-[2.5rem] p-8 md:p-10 shadow-sm border border-slate-200 relative overflow-hidden group"
+          >
+            <div className="absolute top-0 left-0 w-64 h-64 bg-emerald-50 rounded-full blur-3xl -ml-32 -mt-32 opacity-50 group-hover:opacity-100 transition-opacity"></div>
+            <div className="relative z-10">
+              <h3 className="text-xl font-bold text-slate-800 mb-8 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                  <PieChartIcon size={20} />
+                </div>
+                Kelompok Produktivitas
+              </h3>
+              <div className="h-[350px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={stats.productivityData}
+                      cx="50%"
+                      cy="45%"
+                      innerRadius={70}
+                      outerRadius={100}
+                      paddingAngle={8}
+                      dataKey="value"
+                      stroke="none"
+                    >
+                      <Cell fill="#10b981" />
+                      <Cell fill="#f43f5e" />
+                    </Pie>
+                    <Tooltip 
+                      contentStyle={{ 
+                        borderRadius: '20px', 
+                        border: 'none', 
+                        boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)' 
+                      }}
+                    />
+                    <Legend 
+                      verticalAlign="bottom" 
+                      align="center"
+                      iconType="circle"
+                      formatter={(value) => <span className="text-xs font-bold text-slate-600 ml-1">{value}</span>}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </motion.div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="lg:col-span-2 bg-white rounded-[2.5rem] p-8 md:p-10 shadow-sm border border-slate-200"
-        >
-          <div className="flex justify-between items-center mb-8">
-            <h3 className="text-xl font-bold text-slate-800 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                <History size={20} />
-              </div>
-              Aktivitas Terbaru
-            </h3>
-            <button onClick={() => setView('logs')} className="text-sm font-bold text-blue-600 hover:text-blue-700 transition-colors">Lihat Semua</button>
-          </div>
-          <div className="space-y-6">
-            {stats.recentLogs.map((log, i) => (
-              <div key={i} className="flex gap-5 relative group">
-                <div className="absolute left-[20px] top-10 bottom-[-24px] w-0.5 bg-slate-100 group-last:hidden"></div>
-                <div className="w-10 h-10 rounded-2xl bg-slate-50 text-slate-400 flex items-center justify-center text-sm font-bold ring-4 ring-white z-10 border border-slate-100 group-hover:border-blue-200 group-hover:bg-blue-50 group-hover:text-blue-500 transition-all">
-                  {log.username.charAt(0).toUpperCase()}
+        {isAuthenticated && (
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="lg:col-span-2 bg-white rounded-[2.5rem] p-8 md:p-10 shadow-sm border border-slate-200"
+          >
+            <div className="flex justify-between items-center mb-8">
+              <h3 className="text-xl font-bold text-slate-800 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                  <History size={20} />
                 </div>
-                <div className="flex-1 pb-2">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-slate-800">{log.username}</span>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-100">{log.action}</span>
-                    </div>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{format(new Date(log.timestamp), 'HH:mm')}</span>
+                Aktivitas Terbaru
+              </h3>
+              <button onClick={() => setView('logs')} className="text-sm font-bold text-blue-600 hover:text-blue-700 transition-colors">Lihat Semua</button>
+            </div>
+            <div className="space-y-6">
+              {stats.recentLogs.map((log, i) => (
+                <div key={i} className="flex gap-5 relative group">
+                  <div className="absolute left-[20px] top-10 bottom-[-24px] w-0.5 bg-slate-100 group-last:hidden"></div>
+                  <div className="w-10 h-10 rounded-2xl bg-slate-50 text-slate-400 flex items-center justify-center text-sm font-bold ring-4 ring-white z-10 border border-slate-100 group-hover:border-blue-200 group-hover:bg-blue-50 group-hover:text-blue-500 transition-all">
+                    {log.username.charAt(0).toUpperCase()}
                   </div>
-                  <p className="text-sm text-slate-500 line-clamp-1">{log.detail}</p>
+                  <div className="flex-1 pb-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-slate-800">{log.username}</span>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-100">{log.action}</span>
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{format(new Date(log.timestamp), 'HH:mm')}</span>
+                    </div>
+                    <p className="text-sm text-slate-500 line-clamp-1">{log.detail}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </motion.div>
+              ))}
+            </div>
+          </motion.div>
+        )}
 
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
@@ -2237,10 +2302,41 @@ function ProfileView({ currentUser, onUpdate, showNotification }: { currentUser:
                 TES KONEKSI SEKARANG
               </button>
             </div>
-            <div className="mt-6 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+            <div className="mt-6 p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
               <p className="text-[10px] text-slate-400 leading-relaxed italic">
                 * Jika tes koneksi gagal dengan pesan "Failed to fetch", pastikan Script sudah di-deploy sebagai Web App dengan akses "Anyone" (bukan "Anyone with Google Account").
               </p>
+              <button 
+                onClick={() => {
+                  localStorage.setItem('SIDAPEK_MODE', 'local');
+                  window.location.reload();
+                }}
+                className="w-full py-2 text-[10px] font-bold text-slate-500 hover:text-blue-600 transition-colors flex items-center justify-center gap-2"
+              >
+                <Settings size={12} /> GUNAKAN SERVER LOKAL (FALLBACK)
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!IS_GAS && localStorage.getItem('SIDAPEK_MODE') === 'local' && (
+          <div className="bg-white rounded-[2.5rem] p-10 shadow-sm border border-slate-200">
+            <h3 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+              <Database className="text-emerald-500" /> Mode Server Lokal (Aktif)
+            </h3>
+            <div className="p-6 rounded-3xl bg-emerald-50 border border-emerald-100">
+              <p className="text-xs text-emerald-700 mb-4">
+                Anda saat ini menggunakan server lokal sebagai fallback karena mode Google Sheets dinonaktifkan secara manual.
+              </p>
+              <button 
+                onClick={() => {
+                  localStorage.removeItem('SIDAPEK_MODE');
+                  window.location.reload();
+                }}
+                className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl transition-all active:scale-95 shadow-lg shadow-emerald-200"
+              >
+                KEMBALI KE MODE GOOGLE SHEETS
+              </button>
             </div>
           </div>
         )}
