@@ -208,7 +208,24 @@ export default function App() {
   const navigate = (newView: any) => {
     setView(newView);
     setCurrentPage(1);
-    if (currentUser) fetchData(currentUser.token, newView);
+    
+    // Optimization: Only fetch if data is missing or it's a dashboard refresh
+    if (currentUser) {
+      if (newView === 'dashboard') {
+        fetchData(currentUser.token, newView);
+      } else if (newView === 'residents' || ['bpd', 'rt', 'rw', 'pkk', 'karang_taruna', 'lpmd', 'linmas', 'village_officials'].includes(newView)) {
+        if (residents.length === 0) fetchData(currentUser.token, newView);
+      } else if (newView === 'users') {
+        if (users.length === 0) fetchData(currentUser.token, newView);
+      } else if (newView === 'logs') {
+        if (logs.length === 0) fetchData(currentUser.token, newView);
+      } else if (newView === 'village_info') {
+        if (!villageInfo) fetchData(currentUser.token, newView);
+      }
+    } else if (newView === 'dashboard') {
+      // Public dashboard fetch
+      fetchData('', 'dashboard');
+    }
   };
 
   const userHasPermission = (viewName: string, action?: string) => {
@@ -554,18 +571,6 @@ export default function App() {
 
         {/* View Content */}
         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar bg-slate-50/50 relative">
-          {/* Loading Bar */}
-          {isLoading && (
-            <div className="absolute top-0 left-0 right-0 z-50 h-1 bg-slate-100 overflow-hidden">
-              <motion.div 
-                initial={{ x: '-100%' }}
-                animate={{ x: '100%' }}
-                transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
-                className="h-full w-1/3 bg-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.5)]"
-              />
-            </div>
-          )}
-
           {/* Global Notification Bar */}
           <AnimatePresence>
             {notification && (
@@ -675,7 +680,7 @@ export default function App() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
             >
-              {view === 'dashboard' && <DashboardView stats={stats} setView={navigate} isAuthenticated={isAuthenticated} />}
+              {view === 'dashboard' && <DashboardView stats={stats} setView={navigate} isAuthenticated={isAuthenticated} currentUser={currentUser} />}
               {view === 'map' && <VillageMapView residents={residents} />}
               {view === 'residents' && (
                 <ResidentsView 
@@ -992,14 +997,28 @@ export default function App() {
 
   async function handleSaveResident(data: any) {
     if (!currentUser) return;
+    
+    // Optimistic Update
+    const isEdit = residents.some(r => r.nik === data.nik);
+    const oldResidents = [...residents];
+    if (isEdit) {
+      setResidents(residents.map(r => r.nik === data.nik ? { ...r, ...data } : r));
+    } else {
+      setResidents([{ ...data, created_at: new Date().toISOString() }, ...residents]);
+    }
+    setIsModalOpen(false);
+
     try {
       const res = await apiService.saveResident(data, currentUser.token!);
       if (res.status === 'success') {
-        setIsModalOpen(false);
         showNotification('Data penduduk berhasil disimpan', 'success');
         fetchData(currentUser.token!, 'residents');
+      } else {
+        setResidents(oldResidents);
+        showNotification('Gagal menyimpan data', 'error');
       }
     } catch (error) {
+      setResidents(oldResidents);
       showNotification('Gagal menyimpan data', 'error');
     }
   }
@@ -1010,13 +1029,20 @@ export default function App() {
       `Apakah Anda yakin ingin menghapus data penduduk dengan NIK ${nik}? Tindakan ini tidak dapat dibatalkan.`,
       async () => {
         if (!currentUser) return;
+        const oldResidents = [...residents];
+        setResidents(residents.filter(r => r.nik !== nik));
+        
         try {
           const res = await apiService.deleteResident(nik, currentUser.token!);
           if (res.status === 'success') {
             showNotification('Data penduduk berhasil dihapus', 'success');
             fetchData(currentUser.token!, 'residents');
+          } else {
+            setResidents(oldResidents);
+            showNotification('Gagal menghapus data', 'error');
           }
         } catch (error) {
+          setResidents(oldResidents);
           showNotification('Gagal menghapus data', 'error');
         }
       }
@@ -1025,14 +1051,28 @@ export default function App() {
 
   async function handleSaveUser(data: any) {
     if (!currentUser) return;
+    const oldUsers = [...users];
+    const isEdit = !!editingItem;
+    
+    // Optimistic Update
+    if (isEdit) {
+      setUsers(users.map(u => u.username === data.username ? { ...u, ...data } : u));
+    } else {
+      setUsers([{ ...data, status: 'Active' }, ...users]);
+    }
+    setIsModalOpen(false);
+
     try {
-      const res = await apiService.saveUser({ ...data, isEdit: !!editingItem }, currentUser.token!);
+      const res = await apiService.saveUser({ ...data, isEdit }, currentUser.token!);
       if (res.status === 'success') {
-        setIsModalOpen(false);
         showNotification('Data user berhasil disimpan', 'success');
         fetchData(currentUser.token!, 'users');
+      } else {
+        setUsers(oldUsers);
+        showNotification('Gagal menyimpan user', 'error');
       }
     } catch (error) {
+      setUsers(oldUsers);
       showNotification('Gagal menyimpan user', 'error');
     }
   }
@@ -1043,13 +1083,20 @@ export default function App() {
       `Apakah Anda yakin ingin menghapus akun pengguna "${username}"?`,
       async () => {
         if (!currentUser) return;
+        const oldUsers = [...users];
+        setUsers(users.filter(u => u.username !== username));
+        
         try {
           const res = await apiService.deleteUser(username, currentUser.token!);
           if (res.status === 'success') {
             showNotification('User berhasil dihapus', 'success');
             fetchData(currentUser.token!, 'users');
+          } else {
+            setUsers(oldUsers);
+            showNotification('Gagal menghapus user', 'error');
           }
         } catch (error) {
+          setUsers(oldUsers);
           showNotification('Gagal menghapus user', 'error');
         }
       }
@@ -1299,7 +1346,7 @@ function SidebarItem({ icon, label, active, onClick, collapsed }: any) {
   );
 }
 
-function DashboardView({ stats, setView, isAuthenticated }: { stats: DashboardStats | null, setView: (view: any) => void, isAuthenticated: boolean }) {
+function DashboardView({ stats, setView, isAuthenticated, currentUser }: { stats: DashboardStats | null, setView: (view: any) => void, isAuthenticated: boolean, currentUser: User | null }) {
   if (!stats) return (
     <div className="animate-pulse space-y-8">
       <div className="h-10 w-48 bg-slate-200 rounded-lg mb-8"></div>
@@ -1315,6 +1362,14 @@ function DashboardView({ stats, setView, isAuthenticated }: { stats: DashboardSt
 
   const COLORS = ['#3b82f6', '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f59e0b'];
 
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 11) return 'Selamat Pagi';
+    if (hour < 15) return 'Selamat Siang';
+    if (hour < 19) return 'Selamat Sore';
+    return 'Selamat Malam';
+  };
+
   return (
     <div className="space-y-8 pb-12">
       <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
@@ -1322,8 +1377,12 @@ function DashboardView({ stats, setView, isAuthenticated }: { stats: DashboardSt
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
         >
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Dashboard</h1>
-          <p className="text-slate-500 mt-0.5 font-medium text-sm">Selamat datang di pusat kendali data kependudukan.</p>
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight">
+            {isAuthenticated && currentUser ? `${getGreeting()}, ${currentUser.nama_lengkap.split(' ')[0]}!` : 'Dashboard'}
+          </h1>
+          <p className="text-slate-500 mt-0.5 font-medium text-sm">
+            {isAuthenticated ? 'Senang melihat Anda kembali. Berikut adalah ringkasan data hari ini.' : 'Selamat datang di pusat kendali data kependudukan.'}
+          </p>
         </motion.div>
         <motion.div 
           initial={{ opacity: 0, x: 20 }}
