@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SIDAPEK - Sistem Informasi Data Penduduk</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; margin: 0; padding: 0; background: #f8fafc; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    #root { min-height: 100vh; display: flex; flex-direction: column; }
+    .glass { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.2); }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+    .loading-spinner { width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #2563eb; border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="text-slate-900">
+  <div id="root">
+    <div class="flex flex-col items-center justify-center min-h-screen">
+      <div class="loading-spinner mb-4"></div>
+      <p class="text-slate-500 font-medium">Memuat Sistem...</p>
+    </div>
+  </div>
+
+  <script>
+    const { useState, useEffect, useMemo, useCallback, Fragment } = React;
+
+    // --- UTILS ---
+    const cn = (...classes) => classes.filter(Boolean).join(' ');
+
+    const Icon = ({ name, size = 20, className = "" }) => {
+      useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
+      return React.createElement('i', { 'data-lucide': name, style: { width: size, height: size }, className });
+    };
+
+    // --- API WRAPPER ---
+    const api = (action, data = {}) => {
+      return new Promise((resolve, reject) => {
+        if (typeof google === 'undefined') {
+          // Mock for local testing
+          console.log('Mock API:', action, data);
+          setTimeout(() => resolve({ status: 'success', data: [] }), 500);
+          return;
+        }
+        const session = JSON.parse(localStorage.getItem('sidapek_session') || '{}');
+        google.script.run
+          .withSuccessHandler(res => res.status === 'success' ? resolve(res) : reject(res.message))
+          .withFailureHandler(err => reject(err.toString()))
+          .api({ action, data, token: session.token });
+      });
+    };
+
+    // --- COMPONENTS ---
+    const Card = ({ children, className = "" }) => 
+      React.createElement('div', { className: cn("bg-white rounded-3xl shadow-sm border border-slate-100 p-6", className) }, children);
+
+    const StatCard = ({ title, value, icon, color }) => 
+      React.createElement(Card, { className: "flex items-center gap-5" },
+        React.createElement('div', { className: cn("w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-lg", color) },
+          React.createElement(Icon, { name: icon, size: 28 })
+        ),
+        React.createElement('div', null,
+          React.createElement('p', { className: "text-slate-500 text-xs font-bold uppercase tracking-widest" }, title),
+          React.createElement('h3', { className: "text-2xl font-black text-slate-800" }, value)
+        )
+      );
+
+    // --- MAIN APP ---
+    function App() {
+      const [isAuthenticated, setIsAuthenticated] = useState(false);
+      const [view, setView] = useState('dashboard');
+      const [currentUser, setCurrentUser] = useState(null);
+      const [isLoading, setIsLoading] = useState(false);
+      const [notification, setNotification] = useState(null);
+      const [stats, setStats] = useState({ totalPenduduk: 0, totalLakiLaki: 0, totalPerempuan: 0, totalKKMale: 0, totalKKFemale: 0, totalKK: 0, totalUsers: 0 });
+      const [residents, setResidents] = useState([]);
+      const [searchTerm, setSearchTerm] = useState('');
+      const [dusunFilter, setDusunFilter] = useState('Semua Dusun');
+      const [users, setUsers] = useState([]);
+      const [logs, setLogs] = useState([]);
+      const [logsPage, setLogsPage] = useState(1);
+      const [sidebarOpen, setSidebarOpen] = useState(true);
+      const [modal, setModal] = useState({ isOpen: false, type: 'resident', data: null });
+
+      const logsPerPage = 20;
+
+      const showNotification = (message, type = 'success') => {
+        setNotification({ message, type });
+        setTimeout(() => setNotification(null), 3000);
+      };
+
+      useEffect(() => {
+        const saved = localStorage.getItem('sidapek_session');
+        if (saved) {
+          const user = JSON.parse(saved);
+          setCurrentUser(user);
+          setIsAuthenticated(true);
+          setView('dashboard');
+          loadStats();
+        }
+      }, []);
+
+      const loadStats = async () => {
+        try {
+          const res = await api('getStats');
+          setStats(res.data);
+        } catch (e) { showNotification(e, 'error'); }
+      };
+
+      const loadResidents = async () => {
+        setIsLoading(true);
+        try {
+          const res = await api('getResidents');
+          setResidents(res.data);
+        } catch (e) { showNotification(e, 'error'); }
+        finally { setIsLoading(false); }
+      };
+
+      const loadUsers = async () => {
+        setIsLoading(true);
+        try {
+          const res = await api('getUsers');
+          setUsers(res.data);
+        } catch (e) { showNotification(e, 'error'); }
+        finally { setIsLoading(false); }
+      };
+
+      const loadLogs = async () => {
+        setIsLoading(true);
+        try {
+          const res = await api('getLogs');
+          setLogs(res.data);
+        } catch (e) { showNotification(e, 'error'); }
+        finally { setIsLoading(false); }
+      };
+
+      const handleLogin = async (e) => {
+        e.preventDefault();
+        const data = Object.fromEntries(new FormData(e.target));
+        setIsLoading(true);
+        try {
+          const res = await api('login', data);
+          localStorage.setItem('sidapek_session', JSON.stringify(res.user));
+          setCurrentUser(res.user);
+          setIsAuthenticated(true);
+          setView('dashboard');
+          loadStats();
+          showNotification('Selamat datang, ' + res.user.nama_lengkap);
+        } catch (e) { showNotification(e, 'error'); }
+        finally { setIsLoading(false); }
+      };
+
+      const handleLogout = () => {
+        localStorage.removeItem('sidapek_session');
+        setIsAuthenticated(false);
+        setCurrentUser(null);
+        showNotification('Berhasil keluar', 'info');
+      };
+
+      const handleExportExcel = (data, filename = 'data_penduduk.xlsx') => {
+        const worksheet = XLSX.utils.json_to_sheet(data);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Data");
+        XLSX.writeFile(workbook, filename);
+        showNotification('Data berhasil diekspor ke Excel');
+      };
+
+      const handleSaveResident = async (e) => {
+        e.preventDefault();
+        const data = Object.fromEntries(new FormData(e.target));
+        try {
+          await api('saveResident', data);
+          showNotification('Data penduduk berhasil disimpan');
+          setModal({ isOpen: false });
+          loadResidents();
+        } catch (e) { showNotification(e, 'error'); }
+      };
+
+      const handleDeleteResident = async (nik) => {
+        if (!confirm('Hapus data ini?')) return;
+        try {
+          await api('deleteResident', nik);
+          showNotification('Data penduduk berhasil dihapus');
+          loadResidents();
+        } catch (e) { showNotification(e, 'error'); }
+      };
+
+      const handleSaveUser = async (e) => {
+        e.preventDefault();
+        const data = Object.fromEntries(new FormData(e.target));
+        try {
+          await api('saveUser', data);
+          showNotification('Data user berhasil disimpan');
+          setModal({ isOpen: false });
+          loadUsers();
+        } catch (e) { showNotification(e, 'error'); }
+      };
+
+      const handleDeleteUser = async (username) => {
+        if (!confirm('Hapus user ini?')) return;
+        try {
+          await api('deleteUser', username);
+          showNotification('User berhasil dihapus');
+          loadUsers();
+        } catch (e) { showNotification(e, 'error'); }
+      };
+
+      if (!isAuthenticated) {
+        return React.createElement('div', { className: "min-h-screen flex items-center justify-center p-6 bg-slate-900 relative overflow-hidden" },
+          React.createElement('div', { className: "absolute inset-0 opacity-20" },
+            React.createElement('div', { className: "absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-600 rounded-full blur-[120px]" }),
+            React.createElement('div', { className: "absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-indigo-600 rounded-full blur-[120px]" })
+          ),
+          React.createElement('div', { className: "w-full max-w-md glass rounded-[3rem] p-12 shadow-2xl relative z-10 animate-fade-in" },
+            React.createElement('div', { className: "text-center mb-10" },
+              React.createElement('div', { className: "w-20 h-20 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-blue-500/20" },
+                React.createElement(Icon, { name: "shield-check", size: 40, className: "text-white" })
+              ),
+              React.createElement('h1', { className: "text-3xl font-black text-white tracking-tight" }, "SIDAPEK"),
+              React.createElement('p', { className: "text-slate-400 font-medium mt-2" }, "Sistem Informasi Data Penduduk")
+            ),
+            React.createElement('form', { onSubmit: handleLogin, className: "space-y-6" },
+              React.createElement('div', null,
+                React.createElement('label', { className: "block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 ml-1" }, "Username"),
+                React.createElement('input', { name: "username", type: "text", required: true, className: "w-full px-6 py-4 bg-white/5 border border-white/10 rounded-2xl text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" })
+              ),
+              React.createElement('div', null,
+                React.createElement('label', { className: "block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 ml-1" }, "Password"),
+                React.createElement('input', { name: "password", type: "password", required: true, className: "w-full px-6 py-4 bg-white/5 border border-white/10 rounded-2xl text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all" })
+              ),
+              React.createElement('button', { type: "submit", disabled: isLoading, className: "w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl shadow-xl shadow-blue-600/20 transition-all active:scale-95 disabled:opacity-50" }, 
+                isLoading ? 'MEMPROSES...' : 'MASUK KE SISTEM'
+              )
+            )
+          )
+        );
+      }
+
+      return React.createElement('div', { className: "flex h-screen overflow-hidden" },
+        // Sidebar
+        React.createElement('aside', { className: cn("bg-slate-900 text-white flex flex-col transition-all duration-300", sidebarOpen ? "w-72" : "w-20") },
+          React.createElement('div', { className: "h-20 flex items-center px-6 border-b border-white/5" },
+            React.createElement('div', { className: "flex items-center gap-3" },
+              React.createElement('div', { className: "w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg" },
+                React.createElement(Icon, { name: "database", size: 20 })
+              ),
+              sidebarOpen && React.createElement('span', { className: "text-xl font-black tracking-tighter" }, "SIDAPEK")
+            )
+          ),
+          React.createElement('nav', { className: "flex-1 p-4 space-y-2 overflow-y-auto custom-scrollbar" },
+            [
+              { id: 'dashboard', label: 'Dashboard', icon: 'home', action: loadStats },
+              { id: 'residents', label: 'Data Penduduk', icon: 'users', action: loadResidents },
+              { id: 'reports', label: 'Laporan', icon: 'file-text', action: loadResidents },
+              { id: 'users', label: 'Kelola User', icon: 'user-cog', adminOnly: true, action: loadUsers },
+              { id: 'logs', label: 'Log Aktivitas', icon: 'history', adminOnly: true, action: loadLogs }
+            ].map(item => {
+              if (item.adminOnly && currentUser.role !== 'Admin') return null;
+              return React.createElement('button', { 
+                key: item.id,
+                onClick: () => { setView(item.id); item.action(); },
+                className: cn("flex items-center gap-4 w-full px-4 py-3.5 rounded-2xl transition-all group", 
+                  view === item.id ? "bg-blue-600 text-white shadow-lg shadow-blue-900/50" : "text-slate-400 hover:bg-white/5 hover:text-white")
+              },
+                React.createElement(Icon, { name: item.icon, size: 20, className: view === item.id ? "text-white" : "text-slate-500 group-hover:text-blue-400" }),
+                sidebarOpen && React.createElement('span', { className: "font-bold text-sm" }, item.label)
+              );
+            })
+          ),
+          React.createElement('div', { className: "p-4 border-t border-white/5" },
+            React.createElement('button', { onClick: handleLogout, className: "flex items-center gap-4 w-full px-4 py-3.5 rounded-2xl text-rose-400 hover:bg-rose-500/10 transition-all" },
+              React.createElement(Icon, { name: "log-out", size: 20 }),
+              sidebarOpen && React.createElement('span', { className: "font-bold text-sm" }, "Keluar")
+            )
+          )
+        ),
+
+        // Main
+        React.createElement('main', { className: "flex-1 flex flex-col min-w-0 bg-slate-50" },
+          // Header
+          React.createElement('header', { className: "h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8" },
+            React.createElement('div', { className: "flex items-center gap-4" },
+              React.createElement('button', { onClick: () => setSidebarOpen(!sidebarOpen), className: "p-2 rounded-xl hover:bg-slate-100 text-slate-500" },
+                React.createElement(Icon, { name: "menu" })
+              ),
+              React.createElement('h2', { className: "text-xl font-black text-slate-800 capitalize" }, view.replace('-', ' '))
+            ),
+            React.createElement('div', { className: "flex items-center gap-4" },
+              React.createElement('div', { className: "text-right hidden sm:block" },
+                React.createElement('p', { className: "text-sm font-bold text-slate-800" }, currentUser.nama_lengkap),
+                React.createElement('p', { className: "text-[10px] font-black text-blue-600 uppercase tracking-widest" }, currentUser.role)
+              ),
+              React.createElement('div', { className: "w-11 h-11 rounded-2xl bg-gradient-to-tr from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold shadow-lg" },
+                currentUser.nama_lengkap.charAt(0).toUpperCase()
+              )
+            )
+          ),
+
+          // Content
+          React.createElement('div', { className: "flex-1 p-8 overflow-auto custom-scrollbar relative" },
+            notification && React.createElement('div', { className: cn("fixed top-24 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-2xl shadow-2xl text-white font-bold animate-fade-in", 
+              notification.type === 'error' ? "bg-rose-500" : "bg-emerald-500") },
+              notification.message
+            ),
+
+            view === 'dashboard' && React.createElement('div', { className: "space-y-8 animate-fade-in" },
+              React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" },
+                React.createElement(StatCard, { title: "Total Penduduk", value: stats.totalPenduduk, icon: "users", color: "bg-blue-600" }),
+                React.createElement(StatCard, { title: "KK Laki-laki", value: stats.totalKKMale, icon: "user", color: "bg-emerald-600" }),
+                React.createElement(StatCard, { title: "KK Perempuan", value: stats.totalKKFemale, icon: "user", color: "bg-rose-600" }),
+                React.createElement(StatCard, { title: "Total KK", value: stats.totalKK, icon: "home", color: "bg-amber-600" })
+              ),
+              React.createElement('div', { className: "grid grid-cols-1 lg:grid-cols-2 gap-8" },
+                React.createElement(Card, null,
+                  React.createElement('h4', { className: "text-lg font-black text-slate-800 mb-6" }, "Distribusi Jenis Kelamin"),
+                  React.createElement('div', { className: "flex items-center justify-center h-64" },
+                    React.createElement('p', { className: "text-slate-400" }, "Visualisasi Grafik akan muncul di sini")
+                  )
+                ),
+                React.createElement(Card, null,
+                  React.createElement('h4', { className: "text-lg font-black text-slate-800 mb-6" }, "Data Dusun"),
+                  React.createElement('div', { className: "space-y-4" },
+                    (stats.dusunData || []).map(d => React.createElement('div', { key: d.name, className: "flex justify-between items-center p-4 bg-slate-50 rounded-2xl" },
+                      React.createElement('span', { className: "font-bold text-slate-700" }, d.name),
+                      React.createElement('span', { className: "bg-white px-3 py-1 rounded-lg shadow-sm font-black text-blue-600" }, d.value)
+                    ))
+                  )
+                )
+              )
+            ),
+
+            view === 'residents' && React.createElement('div', { className: "space-y-6 animate-fade-in" },
+              React.createElement('div', { className: "flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4" },
+                React.createElement('div', null,
+                  React.createElement('h2', { className: "text-2xl font-black text-slate-800" }, "Data Penduduk"),
+                  React.createElement('p', { className: "text-slate-500 text-sm" }, "Kelola seluruh data penduduk desa.")
+                ),
+                React.createElement('div', { className: "flex flex-wrap items-center gap-3 w-full lg:w-auto" },
+                  React.createElement('div', { className: "relative flex-1 md:w-64" },
+                    React.createElement('div', { className: "absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400" },
+                      React.createElement(Icon, { name: "search", size: 18 })
+                    ),
+                    React.createElement('input', { 
+                      type: "text", 
+                      placeholder: "Cari NIK atau Nama...", 
+                      value: searchTerm,
+                      onChange: (e) => setSearchTerm(e.target.value),
+                      className: "w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-sm" 
+                    })
+                  ),
+                  React.createElement('select', {
+                    value: dusunFilter,
+                    onChange: (e) => setDusunFilter(e.target.value),
+                    className: "px-4 py-3 bg-white border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-sm text-sm font-bold text-slate-700"
+                  },
+                    ['Semua Dusun', ...new Set(residents.map(r => r.dusun).filter(Boolean))].map(d => 
+                      React.createElement('option', { key: d, value: d }, d)
+                    )
+                  ),
+                  React.createElement('button', { onClick: () => setModal({ isOpen: true, type: 'resident', data: null }), className: "bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center gap-2 whitespace-nowrap" },
+                    React.createElement(Icon, { name: "plus", size: 20 }), "Tambah Data"
+                  )
+                )
+              ),
+              React.createElement(Card, { className: "p-0 overflow-hidden" },
+                React.createElement('div', { className: "overflow-x-auto" },
+                  React.createElement('table', { className: "w-full text-left border-collapse" },
+                    React.createElement('thead', { className: "bg-slate-50/50 border-b border-slate-100" },
+                      React.createElement('tr', null,
+                        ['NIK & Nama', 'Jenis Kelamin', 'Status Hubungan', 'Dusun', 'Aksi'].map(h => 
+                          React.createElement('th', { key: h, className: "px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest" }, h)
+                        )
+                      )
+                    ),
+                    React.createElement('tbody', { className: "divide-y divide-slate-50" },
+                      residents.filter(r => 
+                        (r.nama.toLowerCase().includes(searchTerm.toLowerCase()) || r.nik.toString().includes(searchTerm)) &&
+                        (dusunFilter === 'Semua Dusun' || r.dusun === dusunFilter)
+                      ).length === 0 ? React.createElement('tr', null, React.createElement('td', { colSpan: 5, className: "px-6 py-20 text-center text-slate-400 italic" }, "Data tidak ditemukan.")) :
+                      residents.filter(r => 
+                        (r.nama.toLowerCase().includes(searchTerm.toLowerCase()) || r.nik.toString().includes(searchTerm)) &&
+                        (dusunFilter === 'Semua Dusun' || r.dusun === dusunFilter)
+                      ).map(r => React.createElement('tr', { 
+                        key: r.nik, 
+                        onClick: () => setModal({ isOpen: true, type: 'resident_detail', data: r }),
+                        className: "hover:bg-slate-50/50 transition-colors group cursor-pointer" 
+                      },
+                        React.createElement('td', { className: "px-6 py-4" },
+                          React.createElement('p', { className: "font-bold text-slate-800" }, r.nama),
+                          React.createElement('p', { className: "text-[10px] font-mono text-slate-400" }, r.nik)
+                        ),
+                        React.createElement('td', { className: "px-6 py-4" },
+                          React.createElement('span', { className: cn("px-3 py-1 rounded-lg text-[10px] font-black uppercase", r.jenis_kelamin === 'Laki-laki' ? "bg-blue-100 text-blue-700" : "bg-rose-100 text-rose-700") }, r.jenis_kelamin)
+                        ),
+                        React.createElement('td', { className: "px-6 py-4 text-sm text-slate-600" }, r.status_hubungan),
+                        React.createElement('td', { className: "px-6 py-4 text-sm text-slate-600" }, r.dusun || '-'),
+                        React.createElement('td', { className: "px-6 py-4" },
+                          React.createElement('div', { className: "flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity" },
+                            React.createElement('button', { 
+                              onClick: (e) => { e.stopPropagation(); setModal({ isOpen: true, type: 'resident', data: r }); }, 
+                              className: "p-2 text-blue-600 hover:bg-blue-50 rounded-xl" 
+                            }, React.createElement(Icon, { name: "edit", size: 18 })),
+                            currentUser.role === 'Admin' && React.createElement('button', { 
+                              onClick: (e) => { e.stopPropagation(); handleDeleteResident(r.nik); }, 
+                              className: "p-2 text-rose-600 hover:bg-rose-50 rounded-xl" 
+                            }, React.createElement(Icon, { name: "trash-2", size: 18 }))
+                          )
+                        )
+                      ))
+                    )
+                  )
+                )
+              )
+            ),
+
+            view === 'reports' && React.createElement('div', { className: "space-y-6 animate-fade-in" },
+              React.createElement('div', { className: "flex justify-between items-center" },
+                React.createElement('div', null,
+                  React.createElement('h2', { className: "text-2xl font-black text-slate-800" }, "Laporan & Ekspor"),
+                  React.createElement('p', { className: "text-slate-500 text-sm" }, "Ekspor data penduduk ke berbagai format.")
+                )
+              ),
+              React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-6" },
+                React.createElement(Card, { className: "flex flex-col items-center text-center p-10" },
+                  React.createElement('div', { className: "w-20 h-20 bg-emerald-100 text-emerald-600 rounded-3xl flex items-center justify-center mb-6" },
+                    React.createElement(Icon, { name: "file-spreadsheet", size: 40 })
+                  ),
+                  React.createElement('h3', { className: "text-xl font-black text-slate-800 mb-2" }, "Ekspor Excel"),
+                  React.createElement('p', { className: "text-slate-500 text-sm mb-8" }, "Unduh seluruh data penduduk dalam format Microsoft Excel (.xlsx)"),
+                  React.createElement('button', { 
+                    onClick: () => handleExportExcel(residents),
+                    className: "w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-lg shadow-emerald-200 transition-all flex items-center justify-center gap-2" 
+                  },
+                    React.createElement(Icon, { name: "download", size: 20 }), "Unduh Excel"
+                  )
+                ),
+                React.createElement(Card, { className: "flex flex-col items-center text-center p-10" },
+                  React.createElement('div', { className: "w-20 h-20 bg-blue-100 text-blue-600 rounded-3xl flex items-center justify-center mb-6" },
+                    React.createElement(Icon, { name: "printer", size: 40 })
+                  ),
+                  React.createElement('h3', { className: "text-xl font-black text-slate-800 mb-2" }, "Cetak Laporan"),
+                  React.createElement('p', { className: "text-slate-500 text-sm mb-8" }, "Cetak ringkasan data penduduk untuk keperluan administrasi desa."),
+                  React.createElement('button', { 
+                    onClick: () => window.print(),
+                    className: "w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl shadow-lg shadow-blue-200 transition-all flex items-center justify-center gap-2" 
+                  },
+                    React.createElement(Icon, { name: "printer", size: 20 }), "Cetak Sekarang"
+                  )
+                )
+              )
+            ),
+
+            view === 'users' && React.createElement('div', { className: "space-y-6 animate-fade-in" },
+              React.createElement('div', { className: "flex justify-between items-center" },
+                React.createElement('div', null,
+                  React.createElement('h2', { className: "text-2xl font-black text-slate-800" }, "Kelola User"),
+                  React.createElement('p', { className: "text-slate-500 text-sm" }, "Manajemen akses sistem.")
+                ),
+                React.createElement('button', { onClick: () => setModal({ isOpen: true, type: 'user', data: null }), className: "bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center gap-2" },
+                  React.createElement(Icon, { name: "plus", size: 20 }), "Tambah User"
+                )
+              ),
+              React.createElement(Card, { className: "p-0 overflow-hidden" },
+                React.createElement('div', { className: "overflow-x-auto" },
+                  React.createElement('table', { className: "w-full text-left border-collapse" },
+                    React.createElement('thead', { className: "bg-slate-50/50 border-b border-slate-100" },
+                      React.createElement('tr', null,
+                        ['Nama Lengkap', 'Username', 'Role', 'Aksi'].map(h => 
+                          React.createElement('th', { key: h, className: "px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest" }, h)
+                        )
+                      )
+                    ),
+                    React.createElement('tbody', { className: "divide-y divide-slate-50" },
+                      users.map(u => React.createElement('tr', { key: u.username, className: "hover:bg-slate-50/50 transition-colors group" },
+                        React.createElement('td', { className: "px-6 py-4 font-bold text-slate-800" }, u.nama_lengkap),
+                        React.createElement('td', { className: "px-6 py-4 text-sm text-slate-600" }, u.username),
+                        React.createElement('td', { className: "px-6 py-4" },
+                          React.createElement('span', { className: cn("px-3 py-1 rounded-lg text-[10px] font-black uppercase", u.role === 'Admin' ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-700") }, u.role)
+                        ),
+                        React.createElement('td', { className: "px-6 py-4" },
+                          React.createElement('div', { className: "flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity" },
+                            React.createElement('button', { onClick: () => setModal({ isOpen: true, type: 'user', data: u }), className: "p-2 text-blue-600 hover:bg-blue-50 rounded-xl" }, React.createElement(Icon, { name: "edit", size: 18 })),
+                            React.createElement('button', { onClick: () => handleDeleteUser(u.username), className: "p-2 text-rose-600 hover:bg-rose-50 rounded-xl" }, React.createElement(Icon, { name: "trash-2", size: 18 }))
+                          )
+                        )
+                      ))
+                    )
+                  )
+                )
+              )
+            ),
+
+            view === 'logs' && React.createElement('div', { className: "space-y-6 animate-fade-in" },
+              React.createElement('div', null,
+                React.createElement('h2', { className: "text-2xl font-black text-slate-800" }, "Log Aktivitas"),
+                React.createElement('p', { className: "text-slate-500 text-sm" }, "Riwayat perubahan sistem.")
+              ),
+              React.createElement(Card, { className: "p-0 overflow-hidden" },
+                React.createElement('div', { className: "overflow-x-auto" },
+                  React.createElement('table', { className: "w-full text-left border-collapse" },
+                    React.createElement('thead', { className: "bg-slate-50/50 border-b border-slate-100" },
+                      React.createElement('tr', null,
+                        ['Waktu', 'User', 'Aksi', 'Detail'].map(h => 
+                          React.createElement('th', { key: h, className: "px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest" }, h)
+                        )
+                      )
+                    ),
+                    React.createElement('tbody', { className: "divide-y divide-slate-50" },
+                      logs.slice((logsPage - 1) * logsPerPage, logsPage * logsPerPage).map((l, i) => React.createElement('tr', { key: i, className: "hover:bg-slate-50/50 transition-colors" },
+                        React.createElement('td', { className: "px-6 py-4 text-xs font-mono text-slate-500" }, new Date(l.timestamp).toLocaleString()),
+                        React.createElement('td', { className: "px-6 py-4 text-sm font-bold text-slate-700" }, l.username),
+                        React.createElement('td', { className: "px-6 py-4" },
+                          React.createElement('span', { className: "px-2 py-1 bg-slate-100 text-slate-600 rounded text-[10px] font-black uppercase" }, l.action)
+                        ),
+                        React.createElement('td', { className: "px-6 py-4 text-sm text-slate-600" }, l.details)
+                      ))
+                    )
+                  )
+                ),
+                React.createElement('div', { className: "px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between" },
+                  React.createElement('p', { className: "text-xs font-bold text-slate-500" }, 
+                    `Menampilkan ${Math.min(logs.length, (logsPage - 1) * logsPerPage + 1)} - ${Math.min(logs.length, logsPage * logsPerPage)} dari ${logs.length} log`
+                  ),
+                  React.createElement('div', { className: "flex gap-2" },
+                    React.createElement('button', { 
+                      disabled: logsPage === 1,
+                      onClick: () => setLogsPage(logsPage - 1),
+                      className: "p-2 rounded-xl hover:bg-white border border-slate-200 disabled:opacity-30 transition-all" 
+                    }, React.createElement(Icon, { name: "chevron-left" })),
+                    React.createElement('button', { 
+                      disabled: logsPage * logsPerPage >= logs.length,
+                      onClick: () => setLogsPage(logsPage + 1),
+                      className: "p-2 rounded-xl hover:bg-white border border-slate-200 disabled:opacity-30 transition-all" 
+                    }, React.createElement(Icon, { name: "chevron-right" }))
+                  )
+                )
+              )
+            )
+          ),
+
+          // Modal
+          modal.isOpen && React.createElement('div', { className: "fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-fade-in" },
+            React.createElement('div', { className: cn("bg-white rounded-[2.5rem] w-full shadow-2xl overflow-hidden", modal.type === 'resident_detail' ? 'max-w-4xl' : 'max-w-2xl') },
+              React.createElement('div', { className: "px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50" },
+                React.createElement('h3', { className: "text-xl font-black text-slate-800" }, 
+                  modal.type === 'resident_detail' ? 'Detail Penduduk' : 
+                  (modal.data ? 'Edit ' : 'Tambah ') + (modal.type === 'resident' ? 'Penduduk' : 'User')
+                ),
+                React.createElement('button', { onClick: () => setModal({ isOpen: false }), className: "p-2 hover:bg-slate-200 rounded-xl transition-colors" }, React.createElement(Icon, { name: "x" }))
+              ),
+              
+              modal.type === 'resident_detail' ? React.createElement('div', { className: "p-10 overflow-y-auto max-h-[70vh] custom-scrollbar" },
+                React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-8" },
+                  [
+                    { label: 'NIK', value: modal.data.nik },
+                    { label: 'No. KK', value: modal.data.no_kk },
+                    { label: 'Nama Lengkap', value: modal.data.nama },
+                    { label: 'Tempat Lahir', value: modal.data.tempat_lahir },
+                    { label: 'Tanggal Lahir', value: modal.data.tanggal_lahir ? new Date(modal.data.tanggal_lahir).toLocaleDateString('id-ID') : '-' },
+                    { label: 'Jenis Kelamin', value: modal.data.jenis_kelamin },
+                    { label: 'Alamat', value: modal.data.alamat },
+                    { label: 'Dusun', value: modal.data.dusun },
+                    { label: 'RT / RW', value: `${modal.data.rt || '-'} / ${modal.data.rw || '-'}` },
+                    { label: 'Agama', value: modal.data.agama },
+                    { label: 'Status Perkawinan', value: modal.data.status_perkawinan },
+                    { label: 'Pendidikan', value: modal.data.pendidikan },
+                    { label: 'Pekerjaan', value: modal.data.pekerjaan },
+                    { label: 'Status Hubungan', value: modal.data.status_hubungan },
+                    { label: 'Kewarganegaraan', value: modal.data.kewarganegaraan },
+                    { label: 'Nama Ayah', value: modal.data.nama_ayah },
+                    { label: 'Nama Ibu', value: modal.data.nama_ibu },
+                    { label: 'Golongan Darah', value: modal.data.golongan_darah },
+                  ].map(item => React.createElement('div', { key: item.label, className: "border-b border-slate-50 pb-4" },
+                    React.createElement('p', { className: "text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1" }, item.label),
+                    React.createElement('p', { className: "text-slate-800 font-bold" }, item.value || '-')
+                  ))
+                )
+              ) :
+              React.createElement('form', { onSubmit: modal.type === 'resident' ? handleSaveResident : handleSaveUser, className: "p-8 space-y-6" },
+                modal.type === 'resident' ? React.createElement(Fragment, null,
+                  React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-6" },
+                    React.createElement('div', null,
+                      React.createElement('label', { className: "block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2" }, "NIK"),
+                      React.createElement('input', { name: "nik", defaultValue: modal.data?.nik, required: true, className: "w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none" })
+                    ),
+                    React.createElement('div', null,
+                      React.createElement('label', { className: "block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2" }, "Nama Lengkap"),
+                      React.createElement('input', { name: "nama", defaultValue: modal.data?.nama, required: true, className: "w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none" })
+                    )
+                  ),
+                  React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-6" },
+                    React.createElement('div', null,
+                      React.createElement('label', { className: "block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2" }, "Jenis Kelamin"),
+                      React.createElement('select', { name: "jenis_kelamin", defaultValue: modal.data?.jenis_kelamin, className: "w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none" },
+                        React.createElement('option', { value: "Laki-laki" }, "Laki-laki"),
+                        React.createElement('option', { value: "Perempuan" }, "Perempuan")
+                      )
+                    ),
+                    React.createElement('div', null,
+                      React.createElement('label', { className: "block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2" }, "Status Hubungan"),
+                      React.createElement('select', { name: "status_hubungan", defaultValue: modal.data?.status_hubungan, className: "w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none" },
+                        ['Kepala Keluarga', 'Istri', 'Anak', 'Lainnya'].map(s => React.createElement('option', { key: s, value: s }, s))
+                      )
+                    )
+                  ),
+                  React.createElement('div', null,
+                    React.createElement('label', { className: "block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2" }, "Alamat"),
+                    React.createElement('textarea', { name: "alamat", defaultValue: modal.data?.alamat, className: "w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none h-24" })
+                  )
+                ) : React.createElement(Fragment, null,
+                  React.createElement('div', null,
+                    React.createElement('label', { className: "block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2" }, "Nama Lengkap"),
+                    React.createElement('input', { name: "nama_lengkap", defaultValue: modal.data?.nama_lengkap, required: true, className: "w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none" })
+                  ),
+                  React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-6" },
+                    React.createElement('div', null,
+                      React.createElement('label', { className: "block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2" }, "Username"),
+                      React.createElement('input', { name: "username", defaultValue: modal.data?.username, required: true, readOnly: !!modal.data, className: "w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50" })
+                    ),
+                    React.createElement('div', null,
+                      React.createElement('label', { className: "block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2" }, "Password"),
+                      React.createElement('input', { name: "password", type: "password", required: !modal.data, className: "w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none" })
+                    )
+                  ),
+                  React.createElement('div', null,
+                    React.createElement('label', { className: "block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2" }, "Role"),
+                    React.createElement('select', { name: "role", defaultValue: modal.data?.role || 'User', className: "w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none" },
+                      React.createElement('option', { value: "Admin" }, "Admin"),
+                      React.createElement('option', { value: "User" }, "User")
+                    )
+                  )
+                ),
+                React.createElement('div', { className: "flex justify-end gap-4 pt-4" },
+                  React.createElement('button', { type: "button", onClick: () => setModal({ isOpen: false }), className: "px-8 py-3 rounded-2xl font-bold text-slate-500 hover:bg-slate-100 transition-colors" }, "Batal"),
+                  React.createElement('button', { type: "submit", className: "px-8 py-3 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95" }, "Simpan Data")
+                )
+              )
+            )
+          )
+        )
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(App));
+  </script>
+</body>
+</html>
+
