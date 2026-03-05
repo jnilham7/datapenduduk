@@ -1402,8 +1402,6 @@ function DashboardView({ stats, setView, isAuthenticated, currentUser }: { stats
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
-        <StatCard title="KK Laki-laki" value={stats.totalKKLakiLaki} icon={<Users />} color="blue" subtitle="Kepala Keluarga" />
-        <StatCard title="KK Perempuan" value={stats.totalKKPerempuan} icon={<Users />} color="rose" subtitle="Kepala Keluarga" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -1473,7 +1471,7 @@ function DashboardView({ stats, setView, isAuthenticated, currentUser }: { stats
               <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
                 <PieChartIcon size={20} />
               </div>
-              Sebaran Dusun
+              Rekap Penduduk Per Dusun
             </h3>
             <div className="h-[350px] w-full">
               <ResponsiveContainer width="100%" height="100%">
@@ -1619,8 +1617,8 @@ function DashboardView({ stats, setView, isAuthenticated, currentUser }: { stats
             </h3>
             <div className="space-y-5">
               <SystemInfoItem label="Versi Aplikasi" value="v1.2.0 Stable" />
-              <SystemInfoItem label="Database Engine" value="SQLite 3.x" />
-              <SystemInfoItem label="Uptime Server" value="99.99%" />
+              <SystemInfoItem label="Database Engine" value="Google Spreadsheet" />
+              <SystemInfoItem label="Copyright" value="ILHAM CAHYA NUGRAHA" />
               <div className="pt-4">
                 <div className="p-5 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-sm">
                   <div className="flex items-center justify-between mb-3">
@@ -1680,7 +1678,7 @@ function StatCard({ title, value, icon, color, subtitle }: any) {
         
         <div>
           <p className="text-white/70 text-xs font-bold uppercase tracking-wider mb-1">{title}</p>
-          <h3 className="text-4xl font-black tracking-tight">{value.toLocaleString()}</h3>
+          <h3 className="text-4xl font-black tracking-tight">{(value || 0).toLocaleString()}</h3>
         </div>
       </div>
     </motion.div>
@@ -2951,10 +2949,10 @@ function OrganizationMemberForm({ residents, initialData, onSubmit, onCancel, sh
 
 function ResidentForm({ initialData, onSubmit, onCancel, showNotification }: any) {
   const [formData, setFormData] = useState<Partial<Resident>>({
-    nik: '', no_kk: '', nama: '', tempat_lahir: '', tanggal_lahir: '', jenis_kelamin: 'Laki-laki',
-    alamat: '', rt: '001', rw: '001', dusun: '', agama: 'Islam',
-    status_perkawinan: 'Belum Kawin', pendidikan: 'SMA/Sederajat', pekerjaan: 'Pelajar/Mahasiswa', 
-    status_hubungan: 'Anak', kewarganegaraan: 'WNI', nama_ayah: '', nama_ibu: '', golongan_darah: '-',
+    nik: '', no_kk: '', nama: '', tempat_lahir: '', tanggal_lahir: '', jenis_kelamin: '',
+    alamat: '', rt: '', rw: '', dusun: '', agama: '',
+    status_perkawinan: '', pendidikan: '', pekerjaan: '', 
+    status_hubungan: '', kewarganegaraan: '', nama_ayah: '', nama_ibu: '', golongan_darah: '-',
     ...initialData
   });
 
@@ -3040,9 +3038,10 @@ function ResidentForm({ initialData, onSubmit, onCancel, showNotification }: any
           <label className="text-sm font-bold text-slate-700 ml-1">Jenis Kelamin</label>
           <select 
             className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-            value={formData.jenis_kelamin || 'Laki-laki'}
+            value={formData.jenis_kelamin || 'Jenis Kelamin'}
             onChange={e => setFormData({...formData, jenis_kelamin: e.target.value as any})}
           >
+            <option value="">Jenis Kelamin</option>
             <option>Laki-laki</option>
             <option>Perempuan</option>
           </select>
@@ -3055,9 +3054,10 @@ function ResidentForm({ initialData, onSubmit, onCancel, showNotification }: any
           <label className="text-sm font-bold text-slate-700 ml-1">Agama</label>
           <select 
             className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-            value={formData.agama || 'Islam'}
+            value={formData.agama || ''}
             onChange={e => setFormData({...formData, agama: e.target.value})}
           >
+            <option value="">Pilih Agama</option>
             <option>Islam</option>
             <option>Kristen</option>
             <option>Katolik</option>
@@ -3071,9 +3071,10 @@ function ResidentForm({ initialData, onSubmit, onCancel, showNotification }: any
           <label className="text-sm font-bold text-slate-700 ml-1">Pendidikan</label>
           <select 
             className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-            value={formData.pendidikan || 'SMA/Sederajat'}
+            value={formData.pendidikan || ''}
             onChange={e => setFormData({...formData, pendidikan: e.target.value})}
           >
+            <option value="">Pilih Pendidikan</option>
             <option>Tidak/Belum Sekolah</option>
             <option>SD/Sederajat</option>
             <option>SMP/Sederajat</option>
@@ -3091,9 +3092,10 @@ function ResidentForm({ initialData, onSubmit, onCancel, showNotification }: any
           <label className="text-sm font-bold text-slate-700 ml-1">Status Perkawinan</label>
           <select 
             className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-            value={formData.status_perkawinan || 'Belum Kawin'}
+            value={formData.status_perkawinan || ''}
             onChange={e => setFormData({...formData, status_perkawinan: e.target.value})}
           >
+            <option value="">Pilih Perkawinan</option>
             <option>Belum Kawin</option>
             <option>Kawin</option>
             <option>Cerai Hidup</option>
@@ -3105,9 +3107,10 @@ function ResidentForm({ initialData, onSubmit, onCancel, showNotification }: any
           <label className="text-sm font-bold text-slate-700 ml-1">Status Hubungan Keluarga</label>
           <select 
             className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-            value={formData.status_hubungan || 'Anak'}
+            value={formData.status_hubungan || ''}
             onChange={e => setFormData({...formData, status_hubungan: e.target.value})}
           >
+            <option value="">Pilih Hub. Keluarga</option>
             <option>Kepala Keluarga</option>
             <option>Suami</option>
             <option>Istri</option>
@@ -3125,9 +3128,10 @@ function ResidentForm({ initialData, onSubmit, onCancel, showNotification }: any
           <label className="text-sm font-bold text-slate-700 ml-1">Kewarganegaraan</label>
           <select 
             className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-            value={formData.kewarganegaraan || 'WNI'}
+            value={formData.kewarganegaraan || ''}
             onChange={e => setFormData({...formData, kewarganegaraan: e.target.value})}
           >
+            <option value="">Pilih Kewarganegaraan</option>
             <option>WNI</option>
             <option>WNA</option>
           </select>
@@ -3164,9 +3168,10 @@ function ResidentForm({ initialData, onSubmit, onCancel, showNotification }: any
           <label className="text-sm font-bold text-slate-700 ml-1">Golongan Darah</label>
           <select 
             className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-            value={formData.golongan_darah || '-'}
+            value={formData.golongan_darah || ''}
             onChange={e => setFormData({...formData, golongan_darah: e.target.value})}
           >
+          <option value="">Pilih Gol. Darah</option>
             <option>-</option>
             <option>A</option>
             <option>B</option>

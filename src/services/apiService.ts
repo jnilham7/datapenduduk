@@ -23,7 +23,7 @@ async function request(action: string, data?: any, token?: string) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => {
         controller.abort('timeout');
-      }, 30000); // 30s timeout
+      }, 60000); // 60s timeout
 
       const response = await fetch(GAS_URL, {
         method: 'POST',
@@ -54,7 +54,7 @@ async function request(action: string, data?: any, token?: string) {
       
       let helpMessage = 'Gagal terhubung ke Google Sheets.';
       if (error.name === 'AbortError' || error.name === 'TimeoutError' || (error instanceof Error && error.message.includes('aborted'))) {
-        helpMessage = 'Koneksi ke Google Sheets terputus atau timeout (melebihi 30 detik). Hal ini biasanya terjadi jika script sedang sibuk atau koneksi internet tidak stabil.';
+        helpMessage = 'Koneksi ke Google Sheets terputus atau timeout (melebihi 60 detik). Hal ini biasanya terjadi jika script sedang sibuk atau koneksi internet tidak stabil.';
       } else if (error.message === 'Failed to fetch') {
         helpMessage += ' (Failed to fetch) Pastikan Script sudah di-deploy sebagai "Web App", akses diatur ke "Anyone" (bukan "Anyone with Google Account"), dan URL sudah benar.';
       } else {

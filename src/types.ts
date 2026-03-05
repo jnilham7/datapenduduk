@@ -61,8 +61,6 @@ export interface DashboardStats {
   totalPerempuan: number;
   totalUsers: number;
   totalKK: number;
-  totalKKLakiLaki: number;
-  totalKKPerempuan: number;
   recentLogs: ActivityLog[];
   genderData: { name: string; value: number }[];
   ageData: { name: string; value: number }[];
